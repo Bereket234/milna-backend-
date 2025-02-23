@@ -18,6 +18,100 @@ app.get("/", (req, res) => {
   res.send("Hello World");
 });
 
+app.post("/token", async (req, res) => {
+  try {
+    console.log("here");
+    const { amount = "20.00", orderId = "1234567890" } = req.body;
+    console.log("req.body", req.body);
+
+    // Setup API credentials
+    const merchantAuthentication =
+      new APIContracts.MerchantAuthenticationType();
+    merchantAuthentication.setName("5pNK6r87");
+    merchantAuthentication.setTransactionKey("48vt6ZD5UWT28by3");
+
+    // Create a transaction request
+    const transactionRequest = new APIContracts.TransactionRequestType();
+    transactionRequest.setTransactionType(
+      APIContracts.TransactionTypeEnum.AUTHCAPTURETRANSACTION
+    );
+    transactionRequest.setAmount(amount);
+
+    // Create the hosted payment page request
+    const request = new APIContracts.GetHostedPaymentPageRequest();
+    request.setMerchantAuthentication(merchantAuthentication);
+    request.setTransactionRequest(transactionRequest);
+
+    // Hosted form settings
+    const setting1 = new APIContracts.SettingType();
+    setting1.setSettingName("hostedPaymentButtonOptions");
+    setting1.setSettingValue(JSON.stringify({ text: "Pay Now" }));
+
+    const setting2 = new APIContracts.SettingType();
+    setting2.setSettingName("hostedPaymentReturnOptions");
+    setting2.setSettingValue(JSON.stringify({ showReceipt: false }));
+
+    const setting4 = new APIContracts.SettingType();
+    setting4.setSettingName("hostedPaymentIFrameCommunicatorUrl");
+    setting4.setSettingValue(
+      JSON.stringify({ url: "http://localhost:5000/iframe-communicator" })
+    );
+
+    request.addToHostedPaymentSettings(setting1);
+    request.addToHostedPaymentSettings(setting2);
+    request.addToHostedPaymentSettings(setting4);
+    console.log("request", request);
+    const controller = new APIControllers.GetHostedPaymentPageController(
+      request
+    );
+    controller.execute((err, response) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const apiResponse = controller.getResponse();
+      if (
+        apiResponse.getMessages().getResultCode() !==
+        APIContracts.MessageTypeEnum.OK
+      ) {
+        return res.status(400).json({ error: "Error fetching token" });
+      }
+
+      return res.json({ token: apiResponse.getToken() });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/iframe-communicator", (req, res) => {
+  res.send(`
+      <html>
+      <head>
+          <script>
+              function callParentFunction(str) {
+                  if (str && window.parent.parent.CommunicationHandler) {
+                      window.parent.parent.CommunicationHandler.onReceiveCommunication({ qstr: str });
+                  }
+              }
+
+              function receiveMessage(event) {
+                  if (event.data) {
+                      callParentFunction(event.data);
+                  }
+              }
+
+              window.addEventListener("message", receiveMessage, false);
+              if (window.location.hash.length > 1) {
+                  callParentFunction(window.location.hash.substring(1));
+              }
+          </script>
+      </head>
+      <body></body>
+      </html>
+  `);
+});
+
 // Route to fetch form token
 app.get("/api/get-form-token", async (req, res) => {
   try {
@@ -175,6 +269,10 @@ app.post("/get-payment-form-token", async (req, res) => {
     console.error(error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
+});
+
+app.get('/checkout/payment/response', (req, res) => {
+  res.sendFile(__dirname + '/iframe-communicator.html');
 });
 
 // Start Express server
